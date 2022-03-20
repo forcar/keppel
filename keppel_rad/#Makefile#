@@ -1,0 +1,254 @@
+T#---------------------
+# Makefile to build a RECSIS job or a library.
+# The default target is all. You may issue "make lib" or "make exe"
+# for a quick repeated compilation and/or linking.
+# If you would like to maintain the library and executable for two different
+# platforms, you can redefine the definition of locallib and localbin with
+# locallib = ../$(shell uname)/lib
+# localbin = ../$(shell uname)/bin
+# or if you have separate HOME directory:
+# locallib = $(HOME)/lib
+# localbin = $(HOME)/bin
+#---------------------
+/bos_out.o): /fs17/users/clas/builds/DEVELOPMENT
+OS_NAME = $(shell uname)
+SHELL = /bin/sh
+ifndef TOP_DIR
+  TOP_DIR = $(HOME)/
+endif  
+locallib = $(TOP_DIR)/lib/$(OS_NAME)
+localbin = $(TOP_DIR)/bin/$(OS_NAME)
+CLASTOP = $(TOP_DIR)
+#
+#---------------------
+# Set up the library name.
+w#---------------------
+
+MAIN_DIRECTORY = $(notdir $(shell pwd))
+
+#----------------------------------------
+# List of subdirectories containing FORTRAN and/or C source code
+#----------------------------------------
+
+SOURCE_FILES = $(wildcard *.[cF] */*/*.[cF] */*.[cF])
+SUB_DIRECTORIES = $(sort $(dir $(SOURCE_FILES)))
+INCLUDE_FILES = $(wildcard *.inc */*.inc *.cmn *.*/cmn *.par *.*.par)
+INCLUDE_DIR = $(sort $(dir $(INCLUDE_FILES)))
+
+#---------------------
+# Set up the targets
+#---------------------
+
+EXE = $(localbin)/$(MAIN_DIRECTORY)$(DEBUG)
+LIBRARY = $(locallib)/lib$(MAIN_DIRECTORY)$(DEBUG).a
+#---------------------
+# Set up CLAS library
+#---------------------
+
+#CLASLIB = $(CLASTOP)/lib
+#
+BOSLIB  = $(CLAS_LIB)
+#BOSLIB = /apps/clas/u1/builds/PRODUCTION/lib/AIX
+#CERNLIB = $(CERN)/97a/lib
+#CERNLIB = /common/lib/CERN/98/lib
+CERNLIB = /scratch1/ralph/clas/CLASsoft/CERN/98/lib
+#------------------------------------
+# CLAS and CERN object modules
+#------------------------------------
+
+REQUIRED_OBJS  = $(CLASTOP)/lib/$(OS_NAME)/keppel_rad.o
+#------------------------------------
+# USER, CLAS and CERN object libraries
+#------------------------------------
+
+LIBNAMES  = $(MAIN_DIRECTORY)$(DEBUG) 
+#LIBNAMES  +=clasutil recutl bos
+LIBNAMES  +=clasutil fputil recutl bos fpack patches
+LIBNAMES  +=lepto63 jetset74 packlib mathlib kernlib lepto63 
+ifeq "$(OS_NAME)" "SunOS"
+LIBNAMES  +=nsl socket
+endif
+#LIBNAMES  += user_dummy
+ 
+#--------------------------------------------------------
+# force loading of these routines from USER library not USER_DUMMY
+#--------------------------------------------------------
+
+UNDEF = -Wl,-u,rerror_
+
+
+#-----------------------------------------------------
+# Set standard fortran compiler flags and definitions
+#-----------------------------------------------------
+OS_NAME = $(shell uname)
+#
+ifeq "$(OS_NAME)" "HP-UX"
+FC = fort77
+endif
+#
+ifeq "$(OS_NAME)" "SunOS"
+FC = f77
+endif
+#
+ifeq "$(OS_NAME)" "AIX"
+FC =f77
+endif
+#
+ifeq "$(OS_NAME)" "Linux"
+FC = g77
+endif
+#
+ifeq "$(OS_NAME)" "OSF1"
+FC = f77
+endif
+#
+#CLAS_DEFS += -D$(MAIN_DIRECTORY)
+#ifeq "$(DEBUG)" "_g"
+#  FFLAGS += -g -C
+#  CLAS_DEFS += -DCLAS_DEBUG -DWRITE_RCS_INFO
+#else
+ifeq "$(OS_NAME)" "HP-UX" 
+  FFLAGS += -cpp +e +O2 +ppu 
+  CLAS_DEFS += 
+endif
+#
+ifeq "$(OS_NAME)" "SunOS" 
+  FFLAGS += -c -e -ftrap=no%inexact,no%underflow 
+  CLAS_DEFS += 
+endif
+#
+ifeq "$(OS_NAME)" "AIX" 
+  FFLAGS =-O2 -qfixed=132 -qextname -WF,
+#  CLAS_DEFS = -WF,
+endif
+#
+ifeq "$(OS_NAME)" "Linux" 
+#  FFLAGS += -O3 -static -m486 -mieee-fp -finit-local-zero -c  -Wall -ffixed-line-length-none 
+  FFLAGS += -O3 -static -m486 -mieee-fp -c -Wuninitialized -Wall -ffixed-line-length-none 
+  CLAS_DEFS += 
+endif
+#---------------------------------------
+# Machine dependent flags and libraries
+#---------------------------------------
+
+
+
+#-----------------------------------------
+# Prepare libraries and their search path
+#-----------------------------------------
+
+LIBS = $(patsubst %,-l%,$(LIBNAMES))
+VPATH_DIR = $(locallib):$(BOSLIB):$(CERNLIB)
+LIBS_DIR  = -L$(subst :, -L,$(VPATH_DIR))
+
+vpath %.a $(strip $(VPATH_DIR)):/usr/local/lib:/usr/lib
+VPATH =.:$(patsubst %/,:%,$(SUB_DIRECTORIES))
+
+#-----------------------------------------
+# Prepare include file search path. All include files should be referenced
+# with respect to.
+#-----------------------------------------
+CLAS_FFLAGS  = -Iinclude -I$(CLAS_PACK)/include
+#
+ifeq "$(OS_NAME)" "AIX" 
+  CLAS_FFLAGS  =-Iinclude,-I$(CLAS_PACK)/include
+  CLAS_DEFS += 
+endif
+#
+#
+#----------------------------------------------
+# build up the list of source and object files
+#----------------------------------------------
+
+FORTRAN_SEARCH  = $(patsubst %,%*.F,. $(SUB_DIRECTORIES))
+FORTRAN_SOURCES = $(wildcard $(FORTRAN_SEARCH)) 
+NOTDIR_F_SOURCES = $(notdir $(FORTRAN_SOURCES))
+
+C_SEARCH  = $(patsubst %,%*.c, . $(SUB_DIRECTORIES))
+C_SOURCES = $(wildcard $(C_SEARCH))
+
+NOTDIR_C_SOURCES = $(notdir $(C_SOURCES))
+
+OBJS  = $(NOTDIR_F_SOURCES:%.F=$(LIBRARY)(%.o)) \
+	$(NOTDIR_C_SOURCES:%.c=$(LIBRARY)(%.o))
+
+#---------
+# actions
+#---------
+
+.PHONY: mklib mkbin depend exe lib
+	@
+
+all: lib exe
+
+mklib: 
+	@test -d $(locallib) || mkdir -p $(locallib) ;
+	@test -f $(LIBRARY)  || ar r $(LIBRARY)
+mkbin:
+	@test -d $(localbin) || mkdir -p $(localbin)
+
+exe: mkbin $(EXE)
+
+lib: mklib $(LIBRARY)
+
+clean:
+	-rm $(LIBRARY)
+	-rm  $(EXE)
+
+$(LIBRARY): $(OBJS)
+	ranlib $(LIBRARY) 
+#	; ar -vx $(LIBRARY) Main.o; \
+#	ar -vd $(LIBRARY) Main.o
+#	
+#	$(AR) r $(OBJS)
+
+$(REQUIRED_OBJS): $(LIBRARY)
+	ar -vx $(LIBRARY) keppel_rad.o; mv keppel_rad.o $(locallib)/.
+ifeq "$(OS_NAME)" "SunOS"
+GFLAGS = -ftrap=no%inexact,no%underflow -C -ext_names=underscores
+endif
+ifeq "$(OS_NAME)" "HP-UX"
+GFLAGS = 
+endif
+#		
+ifeq "$(OS_NAME)" "AIX"
+GFLAGS = -qextname 
+endif
+#	
+$(EXE): $(REQUIRED_OBJS) $(patsubst %, lib%.a,$(LIBNAMES))
+	$(FC) $(GFLAGS) -o $(EXE) $(REQUIRED_OBJS)\
+		$(LIBS_DIR) $(LIBS); rm $(locallib)/keppel_rad.o		
+#
+depend: $(FORTRAN_SOURCES)
+	@test -z "$(FORTRAN_SOURCES)" || makedepend -o.o\) \
+	$(CLAS_FFLAGS) $(FORTRAN_SOURCES)
+	@test -z "$(C_SOURCES)" || makedepend -o.o\) \
+	$(CLAS_FFLAGS) $(FORTRAN_SOURCES)
+#	-p$$\(LIBRARY\)\( $(CLAS_DEFS) $(CLAS_FFLAGS) $(FORTRAN_SOURCES)
+#	@test -z "$(C_SOURCES)" || makedepend -o.o\) \
+#	-p$$\(LIBRARY\)\( $(CLAS_DEFS) $(CLAS_FFLAGS) $(FORTRAN_SOURCES)
+
+
+.F.a:
+	$(FC) $(FFLAGS)$(CLAS_DEFS)$(CLAS_FFLAGS) -c $<
+	@$(AR) r $@ $%
+	@$(RM) $%
+
+.c.a:
+	$(CC) $(CFLAGS)$(CLAS_FFLAGS) -c $<
+	@$(AR) r $@ $%
+	@$(RM) $%
+
+
+
+
+
+# DO NOT DELETE THIS LINE -- make depend depends on it.
+
+./bos_end.o): /fs17/users/clas/builds/DEVELOPMENT/packages/include/bcs.inc
+./bos_ini.o): /fs17/users/clas/builds/DEVELOPMENT/packages/include/bcs.inc
+./bos_ini.o): include/names.inc
+./bos_out.o): /fs17/users/clas/builds/DEVELOPMENT/packages/include/bcs.inc
+./bos_out.o): include/mc.inc
+./event_gen.o): /fs17/users/clas/builds/DEVELOPMENT/packages/include/bcs.inc
+./event_gen.o): include/mc.inc include/names.inc
